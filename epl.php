@@ -60,9 +60,6 @@ class Epl extends Result
     /* Key name for to field (links) */
     const TO = 'to';
 
-    /* Addition properties for link */
-    const PROPERTIES = 'properties';
-
     /* Label for link */
     const LABEL = 'label';
 
@@ -212,6 +209,110 @@ class Epl extends Result
 
 
 
+    /*
+       Assemble facts from files json || yaml || yml
+    */
+    public function assemble
+    (
+        /* Path with files */
+        string $aPath
+    )
+    :self
+    {
+        /* File iterator */
+        $iterator = new RecursiveIteratorIterator
+        (
+            new RecursiveDirectoryIterator( $aPath )
+        );
+
+        /* Цикл */
+        foreach( $iterator as $file )
+        {
+            if( $file -> isFile() )
+            {
+                $ext = $file -> getExtension();
+                if( $ext === 'json' || $ext === 'yaml' || $ext === 'yml' )
+                {
+                    $content = file_get_contents( $file -> getPathname() );
+                    $data = $this -> parseFileContent( $content, $ext );
+                    if( !($data[ self::ENABLED ] ?? true ))
+                    {
+                        $this -> ingest( $data, $file -> getPathname() );
+                    }
+                }
+            }
+        }
+
+        /* Postprocessing */
+        $this -> postProcess();
+
+        return $this;
+    }
+
+
+
+    /*
+       Ingest data array into EPL
+    */
+    public function ingest
+    (
+        /* Data array with keys e, p, l */
+        array $aData,
+        /* Source file name */
+        string $aSource
+    )
+    :self
+    {
+        /* Entities */
+        foreach( $aData[ self::ENTITIES ] ?? [] as $id => $entity )
+        {
+            $this -> addEntity
+            (
+                $id,
+                $entity[ self::TYPE ] ?? null,
+                $aSource
+            );
+        }
+
+        /* Properties */
+        foreach( $aData[ self::PROPERTIES ] ?? [] as $property )
+        {
+            /* Determine scope */
+            $scope
+            = isset( $property[ self::PRIVATE ] )
+            ? self::PRIVATE
+            : self::PUBLIC;
+            $values = $property[ $scope ] ?? [];
+            $this -> addRawProperties
+            (
+                $property[ self::ID ],
+                $values,
+                $scope,
+                $property[ self::CONTEXT ] ?? null,
+                $aSource
+            );
+        }
+
+        /* Links */
+        foreach( $aData[ self::LINKS ] ?? [] as $link )
+        {
+            $this -> addRawLink
+            (
+                $link[ self::FROM ],
+                $link[ self::TO ],
+                $link[ self::TYPE ],
+                $link[ self::LABEL ] ?? null,
+                $link[ self::PROPERTIES ] ?? [],
+                $link[ self::CONTEXT ] ?? null,
+                $aSource
+            );
+        }
+
+        return $this;
+    }
+
+
+
     /**************************************************************************
         Work with entities
     */
@@ -311,7 +412,7 @@ class Epl extends Result
     (
         /* Entity id */
         string $aEntityId,
-        /* Property data array, must contain 'id' key */
+        /* Property data array */
         array $aValues,
         /* Visibility */
         string $aScope = self::PUBLIC,
