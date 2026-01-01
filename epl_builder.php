@@ -38,7 +38,6 @@ class EplBuilder extends Builder
     private EPL $epl = null;
 
 
-
     /*
         Create web builder
     */
@@ -47,10 +46,18 @@ class EplBuilder extends Builder
         /* Application object */
         $aApp,
         /* Model EPL */
+        $aEpl
     )
     :self
     {
-        $result = new self($aApp,  );
+        $result = new self($aApp );
+        $this -> epl = $aEpl;
+
         return $result;
     }
+
+
+
+    /**************************************************************************
+    */
 }

@@ -39,23 +39,101 @@ require_once( LIB . '/app/app.php' );
 */
 class Epl extends Result
 {
+    /* Key name for entities */
+    const ENTITIES = 'e';
+
+    /* Key name for properties */
+    const PROPERTIES = 'p';
+
+    /* Key name for links */
+    const LINKS = 'l';
+
+    /* Key name for id field */
+    const ID = 'id';
+
+    /* Key name for context field */
+    const CONTEXT = 'context';
+
+    /* Key name for from field (links) */
+    const FROM = 'from';
+
+    /* Key name for to field (links) */
+    const TO = 'to';
+
+    /* Addition properties for link */
+    const PROPERTIES = 'properties';
+
+    /* Label for link */
+    const LABEL = 'label';
+
+    /* Key name for private properties */
+    const PRIVATE = 'private';
+
+    /* Key name for public properties */
+    const PUBLIC  = 'public';
+
+    /* Key name for type value */
+    const TYPE  = 'type';
+
+    /* Key name for source value */
+    const SOURCE  = 'source';
+
     /*
-        Main array with entities properties and links
+        Array of entities:
+        [
+            entity_id =>
+            [
+                'type' => type,
+                'source' => source
+            ]
+        ]
     */
-    protected array $facts = [];
+    private array $entities = [];
+
+    /*
+        Array of properties:
+        list of
+        [
+            'id' => entity_id,
+            'context' => ...,
+            'private' => [...],
+            'public' => [...],
+            'source' => ...
+        ]
+    */
+    private array $properties = [];
+
+    /*
+        Array of links:
+        list of
+        [
+            'from' => ...,
+            'to' => ...,
+            'type' => ...,
+            'label' => ...,
+            'context' => ...,
+            'properties' => [...],
+            'source' => ... ]
+    */
+    private array $links = [];
+
+
+    /* Root of entity */
+    private string $root = 'entity';
 
 
 
     /*
         New object
     */
-    __construct
+    function __construct
     (
-
+        App $aApp
     )
     {
         parent::__construct();
         $this -> app = $aApp;
+        $this -> clear();
     }
 
 
@@ -69,6 +147,230 @@ class Epl extends Result
     )
     {
         return new self( $aApp );
+    }
+
+
+
+    /**************************************************************************
+        Utils
+    */
+
+
+    /*
+        Clear facts
+    */
+    public function clear()
+    {
+        $this -> entities = [];
+        $this -> properties = [];
+        $this -> links = [];
+        $this -> version = '';
+        return $this;
+    }
+
+
+
+    /*
+        Load facts from file
+    */
+    public function read
+    (
+        /* File name */
+        string $aFile
+    )
+    {
+        return $this;
+    }
+
+
+
+    /*
+        Write facts in to file
+    */
+    public function write
+    (
+        /* File name for writing */
+        string $aFile
+    )
+    {
+        return $this;
+    }
+
+
+
+    /*
+        Assemble facts from files json || yaml
+    */
+    public function assemble
+    (
+        /* Path with files */
+        string $aPath
+    )
+    {
+        return $this;
+    }
+
+
+
+    /**************************************************************************
+        Work with entities
+    */
+
+    /*
+       Get reference to entities array
+    */
+    private function &getEntities()
+    :array
+    {
+        return $this -> entities;
+    }
+
+
+
+    /*
+       Get reference to properties array
+    */
+    private function &getProperties()
+    :array
+    {
+        return $this -> properties;
+    }
+
+
+
+    /*
+       Get reference to links array
+    */
+    private function &getLinks()
+    :array
+    {
+        return $this -> links;
+    }
+
+
+
+    /*
+       Check exists entity
+    */
+    public function isEntity
+    (
+        /* Entity id */
+        string $aId
+    )
+    :bool
+    {
+        return isset( $this -> entities[ $aId ] );
+    }
+
+
+
+    /*
+        Return type of entity
+    */
+    public function getEntityType
+    (
+        /* Entity id */
+        string $aId
+    )
+    :?string
+    {
+        return $this -> entities[ $aId ][ self::TYPE ] ?? null;
+    }
+
+
+
+    /*
+        Add new entity
+    */
+    public function addEntity
+    (
+        /* Entity id */
+        string $aId,
+        /* Entity type */
+        string $aType = null,
+        /* Source */
+        string $aSource = null
+    )
+    :self
+    {
+        $this -> entities[ $aId ] =
+        [
+            self::TYPE => empty( $aType ) ? $this -> root : $aType,
+            self::SOURCE => $aSource
+        ];
+        return $this;
+    }
+
+
+
+    /**************************************************************************
+        Work with entities
+    */
+
+    public function addRawProperties
+    (
+        /* Entity id */
+        string $aEntityId,
+        /* Property data array, must contain 'id' key */
+        array $aValues,
+        /* Visibility */
+        string $aScope = self::PUBLIC,
+        /* Context */
+        string|array $aContext = null,
+        /* Source */
+        string $aSource = null
+    )
+    :self
+    {
+        $this -> properties[] =
+        [
+            self::ID => $aEntityId,
+            self::CONTEXT => $aContext,
+            self::SOURCE => $aSource,
+            $aScope => $aValues
+        ];
+        return $this;
+    }
+
+
+    /**************************************************************************
+        Work with links
+    */
+
+
+    /*
+       Add link between entities
+    */
+    public function addRawLink
+    (
+        /* From entity id */
+        string $aFromId,
+        /* To entity id */
+        string $aToId,
+        /* Link type */
+        string $aType,
+        /* Label for link */
+        string $aLabel = null,
+        /* Link properties array */
+        array $aProperties = [],
+        /* Context */
+        string|array $aContext = null,
+        /* Source file */
+        string $aSource = null
+    )
+    :self
+    {
+        $this -> links[]
+        = [
+            self::FROM => $aFromId,
+            self::TO => $aToId,
+            self::TYPE => $aType,
+            self::LABEL => $aLabel,
+            self::CONTEXT => $aContext,
+            self::SOURCE => $aSource,
+            self::PROPERTIES => $aProperties
+        ];
+        return $this;
     }
 
 
