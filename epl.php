@@ -196,20 +196,6 @@ class Epl extends Result
 
 
     /*
-        Assemble facts from files json || yaml
-    */
-    public function assemble
-    (
-        /* Path with files */
-        string $aPath
-    )
-    {
-        return $this;
-    }
-
-
-
-    /*
        Assemble facts from files json || yaml || yml
     */
     public function assemble
