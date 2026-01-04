@@ -35,29 +35,53 @@ require_once( LIB . '/web/builder.php' );
 
 class EplBuilder extends Builder
 {
-    private EPL $epl = null;
+    /* Epl object */
+    private Epl $epl = null;
+
 
 
     /*
-        Create web builder
+        Constructor builder
     */
-    static public function create
+    function __construct
     (
         /* Application object */
-        $aApp,
+        App $aApp,
         /* Model EPL */
-        $aEpl
+        Epl $aEpl
     )
     :self
     {
-        $result = new self($aApp );
+        $result = Builder::__construct( $aApp );
         $this -> epl = $aEpl;
+    }
 
+
+
+    /*
+        Create new builder
+    */
+    public static function create
+    (
+        /* Application object */
+        App $aApp,
+        /* Model EPL */
+        Epl $aEpl
+    )
+    :self
+    {
         return $result;
     }
 
 
 
     /**************************************************************************
+        Setters and getters
     */
+
+    public function getEpl()
+    {
+        return $this -> epl;
+    }
+
 }
