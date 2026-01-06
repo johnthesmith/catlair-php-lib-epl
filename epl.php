@@ -524,11 +524,24 @@ class Epl extends Result
 
         /* Связи */
         $data[ self::LINKS ] = [];
-        foreach( $this->links as $link )
+        foreach( $this -> links as $item )
         {
-            $clean = $link;
-            unset( $clean[ self::SOURCE ] );
-            $data[ self::LINKS ][] = $clean;
+            /* Declare export link record */
+            $export = [];
+            /* Build export record */
+            $export[ self::FROM ] = $item[ self::FROM ];
+            $export[ self::TO ] = $item[ self::TO ];
+            $export[ self::TYPE ] = $item[ self::TYPE ];
+            if( !empty( $item[ self::CONTEXT ] ))
+            {
+                $export[ self::CONTEXT ] = $item[ self::CONTEXT ];
+            }
+            if( !empty( $item[ self::PROPERTIES ] ))
+            {
+                $export[ self::PROPERTIES ] = $item[ self::PROPERTIES ];
+            }
+            /* Add link in to data array */
+            $data[ self::LINKS ][] = $export;
         }
 
         return $data;
@@ -885,11 +898,11 @@ class Epl extends Result
     public function addRawLink
     (
         /* From entity id */
-        string $aFromId,
+        array|string $aFromId,
         /* To entity id */
-        string $aToId,
+        array|string $aToId,
         /* Link type */
-        string $aType,
+        array|string $aType,
         /* Label for link */
         string $aLabel = null,
         /* Link properties array */
@@ -907,7 +920,7 @@ class Epl extends Result
             self::TO => $aToId,
             self::TYPE => $aType,
             self::LABEL => $aLabel,
-            self::CONTEXT => $this -> $aContext,
+            self::CONTEXT => $aContext,
             self::SOURCE => $aSource,
             self::PROPERTIES => $aProperties
         ];
