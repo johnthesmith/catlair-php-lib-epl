@@ -32,11 +32,19 @@ require_once( LIB . '/web/builder.php' );
 
 
 
-
-class EplBuilder extends Builder
+class EplBuilder extends Result
 {
     /* Epl object */
-    private Epl $epl = null;
+    private ?Epl $epl = null;
+
+    /* Result path */
+    private ?string $destination = null;
+
+    /* Result metamodel path */
+    private string $metamodel = 'file.yaml';
+
+    /* Result debug file */
+    private string $debug = 'debug.yaml';
 
 
 
@@ -45,15 +53,13 @@ class EplBuilder extends Builder
     */
     function __construct
     (
-        /* Application object */
-        App $aApp,
         /* Model EPL */
         Epl $aEpl
     )
-    :self
     {
-        $result = Builder::__construct( $aApp );
+        /* Set epl object */
         $this -> epl = $aEpl;
+        $this -> builder = Builder::create( $this );
     }
 
 
@@ -63,14 +69,61 @@ class EplBuilder extends Builder
     */
     public static function create
     (
-        /* Application object */
-        App $aApp,
         /* Model EPL */
         Epl $aEpl
     )
+    {
+        return new self( $aEpl );
+    }
+
+
+
+    /*
+        Build content from epl model
+    */
+    public function build
+    (
+        /* Source files */
+        string $aSourceEpl,
+        /* Source index file from string */
+        string $aIndexFile
+    )
     :self
     {
-        return $result;
+        $this -> getMon() -> now([ 'stat', 'begin' ]);
+
+        /* Build epl */
+        $this -> getEpl()
+        /* Assemble epl model from epl path */
+        -> assemble( $aSourceEpl )
+        -> resultTo( $this )
+        ;
+
+        /* Build content */
+        $this -> buildContent( $aIndexFile );
+
+        /* Dump monitor */
+        $this
+        -> getMon()
+        -> drop( $this -> debug )
+        -> flush( $this -> debug )
+        ;
+
+        return $this;
+    }
+
+
+
+    /*
+        Build content
+    */
+    private function buildContent
+    (
+        $aFile
+    )
+    {
+//        $this -> getTemplate( $aFile );
+        return $this;
     }
 
 
@@ -79,9 +132,79 @@ class EplBuilder extends Builder
         Setters and getters
     */
 
+
+
+    /*
+        Return epl object
+    */
     public function getEpl()
+    :Epl
     {
         return $this -> epl;
     }
 
+
+
+    /*
+        Return application object
+    */
+    public function getApp()
+    :App
+    {
+        return $this -> getEpl() -> getApp();
+    }
+
+
+
+    /*
+        Return log object
+    */
+    public function getLog()
+    :Log
+    {
+        return $this -> getApp() -> getLog();
+    }
+
+
+
+    /*
+        Return mon object
+    */
+    public function getMon()
+    :Mon
+    {
+        return $this -> getApp() -> getMon();
+    }
+
+
+
+    /*
+        Set source path for build epl model
+    */
+    public function setContentSource
+    (
+        /* Source path */
+        $a
+    )
+    :self
+    {
+        $this -> contentSource = $a;
+        return $this;
+    }
+
+
+
+    /*
+        Set dest path for build epl model
+    */
+    public function setDestination
+    (
+        /* Dst path */
+        $a
+    )
+    :self
+    {
+        $this -> destination = $a;
+        return $this;
+    }
 }

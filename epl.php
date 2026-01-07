@@ -25,6 +25,7 @@
 */
 
 
+
 namespace catlair;
 
 
@@ -58,8 +59,8 @@ class Epl extends Result
     /* Key name for id field */
     const ID = 'id';
 
-    /* Key name for context field */
-    const CONTEXT = 'context';
+    /* Key name for vector field */
+    const VECTOR = 'vector';
 
     /* Key name for from field (links) */
     const FROM = 'from';
@@ -99,7 +100,7 @@ class Epl extends Result
         [
             entity_id:
             {
-                context: ...,
+                vector: ...,
                 private: [...],
                 public: [...],
                 source: ...
@@ -112,23 +113,19 @@ class Epl extends Result
         Array of links:
         list of
         [
-            'from' => ...,
-            'to' => ...,
-            'type' => ...,
-            'label' => ...,
-            'context' => ...,
-            'properties' => [...],
-            'source' => ... ]
+            from: entity
+            to: entity
+            type: entity
+            label: entity
+            vector: [ key: value, ... ]
+            properties: [ key: value, ... ]
+            source: file-name
     */
     private array $links = [];
 
 
     /* Root of entity */
     private string $root = 'entity';
-
-
-    /* Monitoring object */
-    private ?Mon $mon = null;
 
 
     /*
@@ -140,7 +137,6 @@ class Epl extends Result
     )
     {
         $this -> app = $aApp;
-        $this -> mon = Mon::create( $this -> getLog() );
         $this -> clear();
     }
 
@@ -188,9 +184,6 @@ class Epl extends Result
     )
     :self
     {
-        /* */
-        $this -> mon -> drop( './assemble.json' );
-
         /* Check path accessibility */
         if( !is_dir( $aPath ) || !is_readable( $aPath ) )
         {
@@ -202,106 +195,114 @@ class Epl extends Result
                     'path' => $aPath
                 ]
             );
-            return $this;
         }
-
-        try
+        else
         {
-            $dir = new \RecursiveDirectoryIterator
-            (
-                $aPath,
-                \RecursiveDirectoryIterator::SKIP_DOTS |
-                \RecursiveDirectoryIterator::KEY_AS_PATHNAME
-            );
-
-            $iterator = new \RecursiveIteratorIterator
-            (
-                $dir,
-                \RecursiveIteratorIterator::SELF_FIRST
-            );
-
-            foreach( $iterator as $file )
+        try
             {
-                try
-                {
-                    if( $file->isFile() )
-                    {
-                        $ext = $file -> getExtension();
-                        if( $ext === 'json' || $ext === 'yaml' || $ext === 'yml' )
-                        {
-                            $content = @file_get_contents( $file -> getPathname() );
-                            if( $content === false )
-                            {
-                                $this -> mon -> add
-                                (
-                                    [
-                                        'warning',
-                                        'file-read',
-                                        $file -> getPathname()
-                                    ]
-                                );
-                                continue;
-                            }
+                $dir = new \RecursiveDirectoryIterator
+                (
+                    $aPath,
+                    \RecursiveDirectoryIterator::SKIP_DOTS |
+                    \RecursiveDirectoryIterator::KEY_AS_PATHNAME
+                );
 
-                            $r = new Result();
-                            $data = clParse( $content, $ext, $r );
-                            if( $r -> isOk() )
+                $iterator = new \RecursiveIteratorIterator
+                (
+                    $dir,
+                    \RecursiveIteratorIterator::SELF_FIRST
+                );
+
+                foreach( $iterator as $file )
+                {
+                    try
+                    {
+                        if( $file->isFile() )
+                        {
+                            $ext = $file -> getExtension();
+                            if( $ext === 'json' || $ext === 'yaml' || $ext === 'yml' )
                             {
-                                if(( $data[ 'enabled' ] ?? true ) !== false )
+                                $content = @file_get_contents( $file -> getPathname() );
+                                if( $content === false )
                                 {
-                                    $this -> ingest( $data, $file->getPathname() );
+                                    $this -> getMon() -> add
+                                    (
+                                        [
+                                            'warning',
+                                            'file-read',
+                                            $file -> getPathname()
+                                        ]
+                                    );
+                                    continue;
                                 }
-                            }
-                            else
-                            {
-                                $this -> mon -> add
-                                (
-                                    [
-                                        'warning',
-                                        'file-parse-error',
-                                        $r -> getCode(),
-                                        $file -> getPathname()
-                                    ]
-                                );
+
+                                $r = new Result();
+                                $data = clParse( $content, $ext, $r );
+                                if( $r -> isOk() )
+                                {
+                                    if(( $data[ 'enabled' ] ?? true ) !== false )
+                                    {
+                                        $this -> ingest( $data, $file->getPathname() );
+                                    }
+                                }
+                                else
+                                {
+                                    $this -> getMon() -> add
+                                    (
+                                        [
+                                            'warning',
+                                            'file-parse-error',
+                                            $r -> getCode(),
+                                            $file -> getPathname()
+                                        ]
+                                    );
+                                }
                             }
                         }
                     }
-                }
-                catch( \Exception $e )
-                {
-                    $this -> setResult
-                    (
-                        'Epl::assemble:iterator-error',
-                        [
-                            'message' => $e -> getMessage(),
-                            'path' => $aPath
-                        ]
-                    );
-                    continue;
+                    catch( \Exception $e )
+                    {
+                        $this -> setResult
+                        (
+                            'Epl::assemble:iterator-error',
+                            [
+                                'message' => $e -> getMessage(),
+                                'path' => $aPath
+                            ]
+                        );
+                        continue;
+                    }
                 }
             }
-        }
-        catch( \Exception $e )
-        {
-            $this -> setResult
-            (
-                'Epl::assemble:iterator_error',
-                [ 'message' => $e -> getMessage() ]
-            );
-        }
-
-        /* Postprocessing */
-        foreach( $this -> entities as $entityId => $entityData )
-        {
-            $type = $entityData[ self::TYPE ] ?? null;
-            if( !$this -> isEntity( $type ))
+            catch( \Exception $e )
             {
-                $this -> mon -> add([ 'warning', 'error-check-type', $type ]);
+                $this -> setResult
+                (
+                    'Epl::assemble:iterator_error',
+                    [ 'message' => $e -> getMessage() ]
+                );
+            }
+
+            /* Postprocessing */
+            foreach( $this -> entities as $entityId => $entityData )
+            {
+                $type = $entityData[ self::TYPE ] ?? null;
+                if( !$this -> isEntity( $type ))
+                {
+                    $this -> getMon() -> add
+                    (
+                        [ 'warning', 'error-check-type', $type ]
+                    );
+                }
             }
         }
 
-        /* Dump mon */
-        $this -> mon -> flush( './assemble.json' );
+        /* Information */
+        $this -> getMon()
+        -> set([ 'stat', 'count', 'entities' ], count( $this -> getEntities() ))
+        -> set([ 'stat', 'count', 'properties' ], count( $this -> getProperties() ))
+        -> set([ 'stat', 'count', 'links' ], count( $this -> getLinks() ))
+        ;
 
         return $this;
     }
@@ -311,7 +312,7 @@ class Epl extends Result
     /*
        Ingest data array into EPL
     */
-    public function ingest
+    private function ingest
     (
         /* Data array with keys e, p, l */
         array $aData,
@@ -332,7 +333,7 @@ class Epl extends Result
             }
             else
             {
-                $this -> mon -> add
+                $this -> getMon -> add
                 (
                     [
                         'entities-is-not-array',
@@ -348,7 +349,7 @@ class Epl extends Result
         {
             if( !is_array( $aData[ self::PROPERTIES ] ))
             {
-                $this -> mon -> add
+                $this -> getMon() -> add
                 (
                     [
                         'properties-is-not-array',
@@ -370,7 +371,7 @@ class Epl extends Result
                     )
                 )
                 {
-                    $this -> mon -> add
+                    $this -> getMon() -> add
                     (
                         [
                             'properties-is-not-index-array',
@@ -389,13 +390,13 @@ class Epl extends Result
                                 $item[ self::ID ] ?? '',
                                 $item[ self::PRIVATE ] ?? [],
                                 $item[ self::PUBLIC ] ?? [],
-                                $item[ self::CONTEXT ] ?? null,
+                                $item[ self::VECTOR ] ?? null,
                                 $aSource
                             );
                         }
                         else
                         {
-                            $this -> mon -> add
+                            $this -> getMon() -> add
                             (
                                 [
                                     'property-id-not-found',
@@ -413,7 +414,7 @@ class Epl extends Result
         {
             if( !is_array( $aData[ self::LINKS ] ))
             {
-                $this -> mon -> add
+                $this -> getMon() -> add
                 (
                     [
                         'links-is-not-array',
@@ -435,7 +436,7 @@ class Epl extends Result
                     )
                 )
                 {
-                    $this -> mon -> add
+                    $this -> getMon() -> add
                     (
                         [
                             'link-is-not-index-array',
@@ -454,7 +455,7 @@ class Epl extends Result
                             $link[ self::TYPE ],
                             $link[ self::LABEL ] ?? null,
                             $link[ self::PROPERTIES ] ?? [],
-                            $link[ self::CONTEXT ] ?? null,
+                            $link[ self::VECTOR ] ?? null,
                             $aSource
                         );
                     }
@@ -513,9 +514,9 @@ class Epl extends Result
                 {
                     $export[ self::PUBLIC ] = $item[ self::PUBLIC ];
                 }
-                if( !empty( $item[ self::CONTEXT ] ))
+                if( !empty( $item[ self::VECTOR ] ))
                 {
-                    $export[ self::CONTEXT ] = $item[ self::CONTEXT ];
+                    $export[ self::VECTOR ] = $item[ self::VECTOR ];
                 }
                 /* Add result record */
                 $data[ self::PROPERTIES ][] = $export;
@@ -532,9 +533,9 @@ class Epl extends Result
             $export[ self::FROM ] = $item[ self::FROM ];
             $export[ self::TO ] = $item[ self::TO ];
             $export[ self::TYPE ] = $item[ self::TYPE ];
-            if( !empty( $item[ self::CONTEXT ] ))
+            if( !empty( $item[ self::VECTOR ] ))
             {
-                $export[ self::CONTEXT ] = $item[ self::CONTEXT ];
+                $export[ self::VECTOR ] = $item[ self::VECTOR ];
             }
             if( !empty( $item[ self::PROPERTIES ] ))
             {
@@ -587,57 +588,39 @@ class Epl extends Result
 
 
     /*
-       Normalize context to array of string arrays
+        Normalize vector to array of string arrays
     */
-    private function normalizeContext
+    private function normalizeVector
     (
-        /* Raw context: string, string[], string[][] or null */
-        $aRawContext
+        /*
+            null -> []
+            scalar -> []
+            [ key: value ]  -> [ key: [ value ] ]
+            [ key: [value, value, ...  ]] -> [ key: [value, value, ...  ]]
+        */
+        $aRawVector
     )
     :array
     {
         $result = [];
-
-        /* Null context */
-        if( $aRawContext === null )
+        if( is_array( $aRawVector ))
         {
-            $result = [];
-        }
-        /* String context */
-        elseif( is_string( $aRawContext ) )
-        {
-            $result = [ [ $aRawContext ] ];
-        }
-        /* Array context */
-        elseif( is_array( $aRawContext ) )
-        {
-            /* Empty array */
-            if( empty( $aRawContext ) )
+            foreach( $aRawVector as $key => $value )
             {
-                $result = [ [] ];
-            }
-            else
-            {
-                /* Check first element type */
-                $first = reset( $aRawContext );
-                /* Already array of arrays */
-                if( is_array( $first ) )
+                if( $value === null )
                 {
-                    $result = $aRawContext;
+                    $result[ $key ] = [];
                 }
-                /* Array of strings */
+                elseif( is_array( $value ))
+                {
+                    $result[ $key ] = $value;
+                }
                 else
                 {
-                    $result = [ $aRawContext ];
+                    $result[ $key ] = [ $value ];
                 }
             }
         }
-        // Fallback
-        else
-        {
-            $result = [ [] ];
-        }
-
         return $result;
     }
 
@@ -724,11 +707,26 @@ class Epl extends Result
     )
     :self
     {
-        $this -> entities[ $aId ] =
-        [
-            self::TYPE => empty( $aType ) ? $this -> root : $aType,
-            self::SOURCE => $aSource
-        ];
+        if( $this -> isEntity( $aId ) )
+        {
+            $this -> getMon() -> set
+            (
+                [
+                    'warning',
+                    'entity-rediclared',
+                    $aId
+                ],
+                $aSource
+            );
+        }
+        else
+        {
+            $this -> entities[ $aId ] =
+            [
+                self::TYPE => empty( $aType ) ? $this -> root : $aType,
+                self::SOURCE => $aSource
+            ];
+        }
         return $this;
     }
 
@@ -760,6 +758,70 @@ class Epl extends Result
 
 
 
+    /*
+       Check if key vector matches lock vector
+
+       Rules:
+       - Empty lock vector → universal, matches any key (true)
+       - Empty key vector → matches any lock (true)
+       - For each dimension in key:
+           * Dimension must exist in lock
+           * At least one value from key must be in lock values
+       - All key dimensions must satisfy above
+    */
+    private function vectorCheck
+    (
+        /* Normalized key vector */
+        array $keyVector,
+        /* Normalized lock vector */
+        array $lockVector
+    )
+    : bool
+    {
+        /* Empty lock → universal, accepts everything */
+        if( empty( $lockVector ))
+        {
+            return true;
+        }
+
+        /* Empty key → always matches */
+        if( empty( $keyVector ))
+        {
+            return true;
+        }
+
+        foreach( $keyVector as $sDimension => $aKeyValues )
+        {
+            /* Dimension must exist in lock */
+            if( !isset( $lockVector[$sDimension] ))
+            {
+                return false;
+            }
+
+            $aLockValues = $lockVector[$sDimension];
+            /* Empty lock values for this dimension → disabled, no match */
+            if( empty( $aLockValues ))
+            {
+                return false;
+            }
+
+            /* Empty key values for this dimension → always matches */
+            if( empty( $aKeyValues ))
+            {
+                continue;
+            }
+
+            /* At least one common value */
+            if( empty( array_intersect( $aKeyValues, $aLockValues )))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+
     /**************************************************************************
         Work with properties
     */
@@ -775,8 +837,8 @@ class Epl extends Result
         array $aPrivate,
         /* Public values*/
         array $aPublic,
-        /* Context */
-        string|array $aContext = null,
+        /* Vector */
+        string|array $aVector = null,
         /* Source file */
         string $aSource = null
     )
@@ -784,7 +846,7 @@ class Epl extends Result
     {
         $this -> properties[ $aEntityId ][] =
         [
-            self::CONTEXT => $this -> normalizeContext( $aContext ),
+            self::VECTOR => $this -> normalizeVector( $aVector ),
             self::PRIVATE => $aPrivate,
             self::PUBLIC  => $aPublic,
             self::SOURCE  => $aSource
@@ -795,7 +857,7 @@ class Epl extends Result
 
 
     /*
-        Return property value for entity by key path and context with CP-12 rule
+       Return property value for entity by key path and vector
        matching. Inheritance: private properties of current entity, then public
        properties of parent entities.
     */
@@ -807,16 +869,14 @@ class Epl extends Result
         string|array $aKeyPath,
         /* Default value returned if property is not found */
         mixed $aDefault = null,
-        /* Context for property filtering "" | [""] | [[""]] */
-        string|array $aContext = null,
-        /* CP-12 rule constant for context matching */
-        int $aCp12 = Cp::AND_OR_EQUALS
+        /* Vector null | [ key:value ] | [ key:[ value,value ]] */
+        string|array $aVector = null
     )
     :mixed
     {
         $result = null;
-        /* Prepare key context */
-        $keyContext = $this -> normalizeContext( $aContext );
+        /* Prepare key vector */
+        $keyVector = $this -> normalizeVector( $aVector );
         /* Retrive properties */
         $props = $this -> properties[ $aIdEntity ] ?? [];
         /* Normalize key */
@@ -828,8 +888,8 @@ class Epl extends Result
             (
                 Cp::check
                 (
-                    $keyContext,
-                    $item[ self::CONTEXT ],
+                    $keyVector,
+                    $item[ self::Vector ],
                     $aCp12
                 )
             )
@@ -862,8 +922,8 @@ class Epl extends Result
                     (
                         Cp::check
                         (
-                            $keyContext,
-                            $item[ self::CONTEXT ],
+                            $keyVector,
+                            $item[ self::VECTOR ],
                             $aCp12
                         )
                     )
@@ -907,8 +967,8 @@ class Epl extends Result
         string $aLabel = null,
         /* Link properties array */
         array $aProperties = [],
-        /* Context */
-        string|array $aContext = null,
+        /* Vector */
+        string|array $aVecotr = null,
         /* Source file */
         string $aSource = null
     )
@@ -920,7 +980,7 @@ class Epl extends Result
             self::TO => $aToId,
             self::TYPE => $aType,
             self::LABEL => $aLabel,
-            self::CONTEXT => $aContext,
+            self::VECTOR => $aVector,
             self::SOURCE => $aSource,
             self::PROPERTIES => $aProperties
         ];
@@ -937,9 +997,32 @@ class Epl extends Result
     /*
         Return log object from app
     */
+    public function getApp()
+    :App
+    {
+        return $this -> app;
+    }
+
+
+
+    /*
+        Return log object from app
+    */
     public function getLog()
     :Log
     {
         return $this -> app -> getLog();
     }
+
+
+
+    /*
+        Return mon object from app
+    */
+    public function getMon()
+    :Mon
+    {
+        return $this -> app -> getMon();
+    }
 }
+
