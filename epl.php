@@ -468,7 +468,6 @@ class Epl extends Result
 
 
 
-
     /*
         Load facts from file
     */
@@ -583,7 +582,6 @@ class Epl extends Result
 
         return $this;
     }
-
 
 
 
@@ -769,7 +767,7 @@ class Epl extends Result
            * At least one value from key must be in lock values
        - All key dimensions must satisfy above
     */
-    private function vectorCheck
+    static private function vectorCheck
     (
         /* Normalized key vector */
         array $keyVector,
@@ -822,6 +820,7 @@ class Epl extends Result
     }
 
 
+
     /**************************************************************************
         Work with properties
     */
@@ -857,9 +856,9 @@ class Epl extends Result
 
 
     /*
-       Return property value for entity by key path and vector
-       matching. Inheritance: private properties of current entity, then public
-       properties of parent entities.
+       Return property value for entity by key path and vector matching.
+       Inheritance: private properties of current entity, then public properties
+       of parent entities.
     */
     public function getProperty
     (
@@ -879,30 +878,25 @@ class Epl extends Result
         $keyVector = $this -> normalizeVector( $aVector );
         /* Retrive properties */
         $props = $this -> properties[ $aIdEntity ] ?? [];
+
         /* Normalize key */
         $path = is_array( $aKeyPath ) ? $aKeyPath : [ $aKeyPath ];
+
         /* Search in properties of the current entity */
         foreach( $props as $item )
         {
             if
             (
-                Cp::check
-                (
-                    $keyVector,
-                    $item[ self::Vector ],
-                    $aCp12
-                )
+                self::vectorCheck( $keyVector, $item[ self::VECTOR ])&&
+                clValueExists( $item[ self::PRIVATE ] ?? [], $path )
             )
             {
-                if( clValueExists( $item[ self::PRIVATE ] ?? [], $path ))
-                {
-                    $result = clValueFromObject
-                    (
-                        $item[ self::PRIVATE ],
-                        $path
-                    );
-                    break;
-                }
+                $result = clValueFromObject
+                (
+                    $item[ self::PRIVATE ],
+                    $path
+                );
+                break;
             }
         }
 
@@ -920,23 +914,16 @@ class Epl extends Result
                 {
                     if
                     (
-                        Cp::check
-                        (
-                            $keyVector,
-                            $item[ self::VECTOR ],
-                            $aCp12
-                        )
+                        self::vectorCheck( $keyVector, $item[ self::VECTOR ]) &&
+                        clValueExists( $item[ self::PUBLIC ] ?? [], $path )
                     )
                     {
-                        if( clValueExists( $item[ self::PUBLIC ] ?? [], $path ))
-                        {
-                            $result = clValueFromObject
-                            (
-                                $item[ self::PUBLIC ],
-                                $path
-                            );
-                            break 2;
-                        }
+                        $result = clValueFromObject
+                        (
+                            $item[ self::PUBLIC ],
+                            $path
+                        );
+                        break 2;
                     }
                 }
             }
@@ -968,7 +955,7 @@ class Epl extends Result
         /* Link properties array */
         array $aProperties = [],
         /* Vector */
-        string|array $aVecotr = null,
+        string|array $aVector = null,
         /* Source file */
         string $aSource = null
     )
@@ -976,13 +963,13 @@ class Epl extends Result
     {
         $this -> links[]
         = [
-            self::FROM => $aFromId,
-            self::TO => $aToId,
-            self::TYPE => $aType,
-            self::LABEL => $aLabel,
-            self::VECTOR => $aVector,
-            self::SOURCE => $aSource,
-            self::PROPERTIES => $aProperties
+            self::FROM          => $aFromId,
+            self::TO            => $aToId,
+            self::TYPE          => $aType,
+            self::LABEL         => $aLabel,
+            self::VECTOR        => $aVector,
+            self::SOURCE        => $aSource,
+            self::PROPERTIES    => $aProperties
         ];
         return $this;
     }
@@ -1025,4 +1012,3 @@ class Epl extends Result
         return $this -> app -> getMon();
     }
 }
-

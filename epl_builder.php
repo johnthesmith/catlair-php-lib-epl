@@ -32,7 +32,7 @@ require_once( LIB . '/web/builder.php' );
 
 
 
-class EplBuilder extends Result
+class EplBuilder extends Builder
 {
     /* Epl object */
     private ?Epl $epl = null;
@@ -49,28 +49,12 @@ class EplBuilder extends Result
 
 
     /*
-        Constructor builder
-    */
-    function __construct
-    (
-        /* Model EPL */
-        Epl $aEpl
-    )
-    {
-        /* Set epl object */
-        $this -> epl = $aEpl;
-        $this -> builder = Builder::create( $this );
-    }
-
-
-
-    /*
         Create new builder
     */
     public static function create
     (
         /* Model EPL */
-        Epl $aEpl
+        $aEpl
     )
     {
         return new self( $aEpl );
@@ -81,7 +65,7 @@ class EplBuilder extends Result
     /*
         Build content from epl model
     */
-    public function build
+    public function run
     (
         /* Source files */
         string $aSourceEpl,
@@ -90,7 +74,9 @@ class EplBuilder extends Result
     )
     :self
     {
-        $this -> getMon() -> now([ 'stat', 'begin' ]);
+        $this
+        -> getMon()
+        -> now([ 'stat', 'begin' ]);
 
         /* Build epl */
         $this -> getEpl()
@@ -99,8 +85,8 @@ class EplBuilder extends Result
         -> resultTo( $this )
         ;
 
-        /* Build content */
-        $this -> buildContent( $aIndexFile );
+        $this -> buildFile( $aIndexFile );
+
 
         /* Dump monitor */
         $this
@@ -114,18 +100,149 @@ class EplBuilder extends Result
 
 
 
-    /*
-        Build content
-    */
-    private function buildContent
+    public function getTemplate
     (
-        $aFile
+        string $aFile
     )
+    :string
     {
-//        $this -> getTemplate( $aFile );
-        return $this;
+        return file_get_contents( $aFile );
     }
 
+
+TODO необходимо дописать метод
+дописать разбор ссылок 
+запуск обработки вложенных файлов
+запуск обработки контента сущностией с учетом вектора
+
+    /*
+        Extract all [label](link)
+    */
+    private function linkProcessing
+    (
+        string $content,
+        string $aFile
+    )
+    :string
+    {
+        $pattern = '/\[(.*?)\]\((.*?)\)/';
+        $links = [];
+
+        /* find all atches */
+        preg_match_all
+        (
+            $pattern,
+            $content,
+            $matches,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        );
+
+        /* Build array */
+        foreach( $matches as $match )
+        {
+            $links[] =
+            [
+                'full'  => $match[0][0],
+                'label' => $match[1][0],
+                'link'  => $match[2][0],
+                'start' => $match[0][1],
+                'end'   => $match[0][1] + strlen($match[0][0])
+            ];
+        }
+
+        /* Links processing */
+        $processedLinks = [];
+        foreach( $links as $item )
+        {
+            $link = $item[ 'link' ];
+            $resolved = '';
+
+            /* 1. Protocol check (external URL) */
+            if( preg_match( '#^(https?|ftp|mailto)://#', $link ))
+            {
+                $resolved = $link;
+                /* Url processing */
+            }
+            else
+            {
+                /* Local anchor */
+                if( strpos( $link, '#' ) === 0 )
+                {
+                    $resolved = $link;
+                }
+                else
+                {
+                    /* Entity */
+                    /* Split vector */
+                    $parts = explode( '|', $fullLink, 2 );
+                    $entity = $parts[ 0 ];
+                    $vector = $parts[ 1 ] ?? '';
+                    if( $this -> isEntity( $entity ))
+                    {
+                        $resolved = $this -> buildEntityLink( $link, $item[ 'label' ], $vector );
+                        /* Link processing */
+                    }
+                    else
+                    {
+                        /* File */
+                        /* Split anchor */
+                        $parts = explode( '#', $fullLink, 2 );
+                        $file = $parts[ 0 ];
+                        $ancor = $parts[ 1 ] ?? '';
+                        if( file_exists( $file ))
+                        {
+                            $resolved = $link;
+                            /* File processing */
+                        }
+                        else
+                        {
+                            /* Unknown link */
+                            $resolved = '[unknown-link:' . $link . ']';
+                            $this
+                            -> getMon()
+                            -> set
+                            (
+                                [ 'warning', 'unknown-link', $aFile ],
+                                $link
+                            );
+                        }
+                    }
+                }
+            }
+
+            $processedLinks[] =
+            [
+                'content'   => $resolved,
+                'start'     => $item[ 'start' ],
+                'end'       => $item[ 'end' ]
+            ];
+        }
+
+        exit(1);
+
+
+        return $content;
+    }
+
+
+
+    private function buildFile
+    (
+        string $aFile
+    )
+    :string
+    {
+        $content = $this -> getTemplate( $aFile );
+
+        /* Build content */
+        $content = $this -> buildContent( $content, false, false );
+
+        $content = $this -> linkProcessing( $content, $aFile );
+
+        print_r( $content );
+
+        return $content;
+    }
 
 
     /**************************************************************************
@@ -138,9 +255,8 @@ class EplBuilder extends Result
         Return epl object
     */
     public function getEpl()
-    :Epl
     {
-        return $this -> epl;
+        return $this -> getOwner();
     }
 
 
