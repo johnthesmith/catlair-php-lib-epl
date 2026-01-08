@@ -110,10 +110,89 @@ class EplBuilder extends Builder
     }
 
 
-TODO необходимо дописать метод
-дописать разбор ссылок 
-запуск обработки вложенных файлов
-запуск обработки контента сущностией с учетом вектора
+
+    /*
+        Return link in selected format
+    */
+    static private function buildLink
+    (
+        string $aLabel,
+        string $aLink,
+        string $aHint = ''
+    )
+    :string
+    {
+        return implode
+        (
+            '',
+            [
+                '[',
+                $aLabel,
+                ']',
+                '(',
+                $aLink,
+                empty( $aHint ) ? '' : ( '|'. $aHint ),
+                ')'
+            ]
+        );
+    }
+
+
+
+    /*
+        Build entity link and return it
+    */
+    private function buildEntityLink
+    (
+        /* Entity id */
+        $aId,
+        /* Optional label */
+        $aLabel,
+        /* Vector for name request */
+        $aVector
+    )
+    : ?string
+    {
+        /*  Default link */
+        $result = null;
+        if( $this -> getEpl() -> isEntity( $aId ) )
+        {
+        /* Description */
+            $hint = $this -> getEpl() -> getProperty
+            (
+                $aId,
+                Epl::HINT,
+                '',
+                $aVector
+            );
+
+            $result = self::buildLink
+            (
+
+                /* Label */
+                empty( $aLabel )
+                ? $this
+                -> getEpl()
+                -> getProperty
+                (
+                    $aId,
+                    Epl::NAME,
+                    $aId,
+                    $aVector
+                )
+                : $aLabel,
+
+                /* Link */
+                '/cards/id/' . $aId,
+
+                empty( $hint ) ? '' : '|' . $hint
+            );
+        }
+
+        return $result;
+    }
+
+
 
     /*
         Extract all [label](link)
@@ -174,19 +253,24 @@ TODO необходимо дописать метод
                 {
                     /* Entity */
                     /* Split vector */
-                    $parts = explode( '|', $fullLink, 2 );
+                    $parts = explode( '|', $link, 2 );
                     $entity = $parts[ 0 ];
                     $vector = $parts[ 1 ] ?? '';
-                    if( $this -> isEntity( $entity ))
+                    if( $this -> getEpl() -> isEntity( $entity ))
                     {
-                        $resolved = $this -> buildEntityLink( $link, $item[ 'label' ], $vector );
+                        $resolved = $this -> buildEntityLink
+                        (
+                            $link,
+                            $item[ 'label' ],
+                            $vector
+                        );
                         /* Link processing */
                     }
                     else
                     {
                         /* File */
                         /* Split anchor */
-                        $parts = explode( '#', $fullLink, 2 );
+                        $parts = explode( '#', $link, 2 );
                         $file = $parts[ 0 ];
                         $ancor = $parts[ 1 ] ?? '';
                         if( file_exists( $file ))
@@ -197,13 +281,12 @@ TODO необходимо дописать метод
                         else
                         {
                             /* Unknown link */
-                            $resolved = '[unknown-link:' . $link . ']';
+                            $resolved = '`unknown-link:' . $link . '`';
                             $this
                             -> getMon()
-                            -> set
+                            -> add
                             (
-                                [ 'warning', 'unknown-link', $aFile ],
-                                $link
+                                [ 'warning', 'unknown-link', $aFile, $link ]
                             );
                         }
                     }
@@ -218,8 +301,18 @@ TODO необходимо дописать метод
             ];
         }
 
-        exit(1);
-
+        /* Replace links in content */
+        for( $i = count( $processedLinks ) - 1; $i >= 0; $i-- )
+        {
+            $link = $processedLinks[ $i ];
+            $content = substr_replace
+            (
+                $content,
+                $link[ 'content' ],
+                $link[ 'start' ],
+                $link[ 'end' ] - $link[ 'start' ]
+            );
+        }
 
         return $content;
     }
@@ -236,7 +329,7 @@ TODO необходимо дописать метод
 
         /* Build content */
         $content = $this -> buildContent( $content, false, false );
-
+        /* Link processing */
         $content = $this -> linkProcessing( $content, $aFile );
 
         print_r( $content );

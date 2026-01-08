@@ -83,6 +83,15 @@ class Epl extends Result
     /* Key name for source value */
     const SOURCE  = 'source';
 
+    /* Key name for name of the entity */
+    const NAME = 'name';
+
+    /* Key name for description of the property */
+    const DESCRIPTION = 'description';
+
+    /* Key name for description of the property */
+    const HINT = 'hint';
+
     /*
         Array of entities:
         [
