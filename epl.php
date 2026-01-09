@@ -86,6 +86,12 @@ class Epl extends Result
     /* Key name for name of the entity */
     const NAME = 'name';
 
+    /* Key name for hyperlink template of the entity */
+    const HYPERLINK = 'hyperlink';
+
+    /* Key name for hyperlink template of the entity */
+    const CARD = 'card';
+
     /* Key name for description of the property */
     const DESCRIPTION = 'description';
 
@@ -207,7 +213,7 @@ class Epl extends Result
         }
         else
         {
-        try
+            try
             {
                 $dir = new \RecursiveDirectoryIterator
                 (
@@ -864,6 +870,7 @@ class Epl extends Result
 
 
 
+
     /*
        Return property value for entity by key path and vector matching.
        Inheritance: private properties of current entity, then public properties
@@ -875,19 +882,17 @@ class Epl extends Result
         string $aIdEntity,
         /* Key path: dot-separated string or array of segments */
         string|array $aKeyPath,
-        /* Default value returned if property is not found */
-        mixed $aDefault = null,
         /* Vector null | [ key:value ] | [ key:[ value,value ]] */
         string|array $aVector = null
     )
     :mixed
     {
+        /* Default null */
         $result = null;
         /* Prepare key vector */
         $keyVector = $this -> normalizeVector( $aVector );
         /* Retrive properties */
         $props = $this -> properties[ $aIdEntity ] ?? [];
-
         /* Normalize key */
         $path = is_array( $aKeyPath ) ? $aKeyPath : [ $aKeyPath ];
 
@@ -900,11 +905,16 @@ class Epl extends Result
                 clValueExists( $item[ self::PRIVATE ] ?? [], $path )
             )
             {
-                $result = clValueFromObject
-                (
-                    $item[ self::PRIVATE ],
-                    $path
-                );
+                $result =
+                [
+                    'value' =>
+                    clValueFromObject
+                    (
+                        $item[ self::PRIVATE ],
+                        $path
+                    ),
+                    'source' => $item[ self::SOURCE ]
+                ];
                 break;
             }
         }
@@ -923,22 +933,31 @@ class Epl extends Result
                 {
                     if
                     (
-                        self::vectorCheck( $keyVector, $item[ self::VECTOR ]) &&
+                        self::vectorCheck
+                        (
+                            $keyVector,
+                            $item[ self::VECTOR ]
+                        ) &&
                         clValueExists( $item[ self::PUBLIC ] ?? [], $path )
                     )
                     {
-                        $result = clValueFromObject
-                        (
-                            $item[ self::PUBLIC ],
-                            $path
-                        );
+                        $result =
+                        [
+                            'value' =>
+                            clValueFromObject
+                            (
+                                $item[ self::PUBLIC ],
+                                $path
+                            ),
+                            'source' => $item[ self::SOURCE ]
+                        ];
                         break 2;
                     }
                 }
             }
         }
 
-        return $result ?? $aDefault;
+        return $result;
     }
 
 

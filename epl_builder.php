@@ -40,12 +40,17 @@ class EplBuilder extends Builder
     /* Result path */
     private ?string $destination = null;
 
+    /* Source path */
+    private ?string $source = null;
+
     /* Result metamodel path */
     private string $metamodel = 'file.yaml';
 
     /* Result debug file */
     private string $debug = 'debug.yaml';
 
+    /* Entities cards cache */
+    private array $cards = [];
 
 
     /*
@@ -67,8 +72,6 @@ class EplBuilder extends Builder
     */
     public function run
     (
-        /* Source files */
-        string $aSourceEpl,
         /* Source index file from string */
         string $aIndexFile
     )
@@ -78,14 +81,17 @@ class EplBuilder extends Builder
         -> getMon()
         -> now([ 'stat', 'begin' ]);
 
+        /* Reset cards cache */
+        $this -> cards = [];
+
         /* Build epl */
         $this -> getEpl()
         /* Assemble epl model from epl path */
-        -> assemble( $aSourceEpl )
+        -> assemble( $this -> source )
         -> resultTo( $this )
         ;
 
-        $this -> buildFile( $aIndexFile );
+        $this -> buildFile( $this -> source . '/' . $aIndexFile );
 
 
         /* Dump monitor */
@@ -112,27 +118,61 @@ class EplBuilder extends Builder
 
 
     /*
+        Write file in to destination folder
+    */
+    private function writeOutputFile
+    (
+        /* Local file from destination path */
+        $aLocal,
+        /* Content file */
+        $aContent
+    )
+    {
+        $path = $this -> destination  . '/' . $aLocal;
+
+        $dir = dirname( $path );
+        $file = basename( $path );
+
+        $parts = explode('/', $dir);
+        $stack = [];
+        foreach( $parts as $p )
+        {
+            if( $p === '' || $p === '.' ) continue;
+            if( $p === '..' ) array_pop($stack);
+            else $stack[] = $p;
+        }
+        $path = implode( '/', $stack );
+
+        if( clCheckPath( $path ))
+        {
+            $fullpath = $path . '/' . $file;
+            /* Store file */
+            file_put_contents( $fullpath, $aContent );
+        }
+        return $this;
+    }
+
+
+
+    /*
         Return link in selected format
     */
     static private function buildLink
     (
         string $aLabel,
         string $aLink,
-        string $aHint = ''
+        string $aHint = '',
+        string $aTemplate = '[%label%](%link%|%hint%)'
     )
     :string
     {
-        return implode
+        return clPrep
         (
-            '',
+            $aTemplate,
             [
-                '[',
-                $aLabel,
-                ']',
-                '(',
-                $aLink,
-                empty( $aHint ) ? '' : ( '|'. $aHint ),
-                ')'
+                'label' => $aLabel,
+                'link' => $aLink,
+                'hint' => $aHint
             ]
         );
     }
@@ -140,7 +180,92 @@ class EplBuilder extends Builder
 
 
     /*
-        Build entity link and return it
+        Return real property with file content
+    */
+    public function getProperty
+    (
+        /* Entity identifier */
+        string $aIdEntity,
+        /* Key path: dot-separated string or array of segments */
+        string|array $aKeyPath,
+        /* Default value */
+        $aDefault = '',
+        /* Vector null | [ key:value ] | [ key:[ value,value ]] */
+        string|array $aVector = null
+    )
+    :mixed
+    {
+        $result = $aDefault;
+
+        /* Read property */
+        $property = $this -> getEpl() -> getProperty
+        (
+            $aIdEntity,
+            $aKeyPath,
+            $aVector
+        );
+
+        if( !empty( $property ))
+        {
+            $source = $property[ 'source' ];
+            $value = $property[ 'value' ];
+
+            if( is_string( $value ) && strpos( $value, 'file:' ) === 0 )
+            {
+                /* Remove 'file:' */
+                $filePath = substr( $value, 5 );
+
+                /* Determine path type */
+                if( $filePath[0] === '/' )
+                {
+                    /* Absolute path: file:/etc/config.json */
+                }
+                elseif( strpos( $filePath, './' ) === 0 )
+                {
+                    /* Local relative to source: file:./link.md */
+                    $filePath = dirname( $source )
+                    . '/'
+                    . substr( $filePath, 2 );
+                }
+                else
+                {
+                    /* Relative to project root: file:docs/card.md */
+                    $filePath = $this -> source . '/' . $filePath;
+                }
+
+                /* Resolve real path for file */
+                $realPath = realpath( $filePath );
+
+                /* Check real path exists */
+                if( empty( $realPath ))
+                {
+                    $this -> getMon() -> add
+                    (
+                        [ 'warning', 'include-file-not-fond', $filePath ]
+                    );
+                }
+                else
+                {
+                    /* Return file contnet */
+                    $result = $this -> getTemplate( $filePath );
+                }
+            }
+            else
+            {
+                $result = $value;
+            }
+        }
+
+        return $result;
+    }
+
+
+
+    /*
+        Build entity link and card
+        Return it
+
+        Using cards cache
     */
     private function buildEntityLink
     (
@@ -157,48 +282,56 @@ class EplBuilder extends Builder
         $result = null;
         if( $this -> getEpl() -> isEntity( $aId ) )
         {
-        /* Description */
-            $hint = $this -> getEpl() -> getProperty
-            (
-                $aId,
-                Epl::HINT,
-                '',
-                $aVector
-            );
+            /* Build entity card hash */
+            $hash = hash( 'sha256', $aId . serialize( $aVector ));
 
+            /* Build entity card file name */
+            $filename = 'cards' . clScatterName( $hash, 3 ) . '.md';
+
+            /*
+                Build link
+            */
             $result = self::buildLink
             (
-
                 /* Label */
                 empty( $aLabel )
-                ? $this
-                -> getEpl()
-                -> getProperty
-                (
-                    $aId,
-                    Epl::NAME,
-                    $aId,
-                    $aVector
-                )
+                ? $this -> getProperty( $aId, Epl::NAME, $aId, $aVector )
                 : $aLabel,
 
                 /* Link */
-                '/cards/id/' . $aId,
+                $filename,
 
-                empty( $hint ) ? '' : '|' . $hint
+                $this -> getProperty( $aId, Epl::HINT, '', $aVector ),
+                $this -> getProperty( $aId, Epl::HYPERLINK, '', $aVector )
             );
-        }
 
+            /*
+                Build card
+            */
+            /* Check entity hash */
+            if( !( $this -> cards[ $hash ] ?? false ))
+            {
+                /* Get card content */
+                $content = $this -> getProperty( $aId, Epl::CARD, '', $aVector );
+                /* Build content */
+                $content = $this -> buildContentExt( $content, 'CHECK_', $aId );
+                /* Write content */
+                $this -> writeOutputFile( $filename, $content );
+                /* Store hash */
+                $this -> cards[ $hash ] = true;
+            }
+        }
         return $result;
     }
 
 
 
     /*
-        Extract all [label](link)
+        Extract all [label](link) from content
     */
     private function linkProcessing
     (
+        /* Content for processing */
         string $content,
         string $aFile
     )
@@ -234,12 +367,13 @@ class EplBuilder extends Builder
         foreach( $links as $item )
         {
             $link = $item[ 'link' ];
+            $label = $item[ 'label' ];
             $resolved = '';
 
-            /* 1. Protocol check (external URL) */
+            /* Protocol check (external URL) */
             if( preg_match( '#^(https?|ftp|mailto)://#', $link ))
             {
-                $resolved = $link;
+                $resolved = self::buildLink( $label, $link );
                 /* Url processing */
             }
             else
@@ -252,10 +386,12 @@ class EplBuilder extends Builder
                 else
                 {
                     /* Entity */
-                    /* Split vector */
+
+                    /* Split for vector */
                     $parts = explode( '|', $link, 2 );
                     $entity = $parts[ 0 ];
                     $vector = $parts[ 1 ] ?? '';
+
                     if( $this -> getEpl() -> isEntity( $entity ))
                     {
                         $resolved = $this -> buildEntityLink
@@ -264,7 +400,6 @@ class EplBuilder extends Builder
                             $item[ 'label' ],
                             $vector
                         );
-                        /* Link processing */
                     }
                     else
                     {
@@ -319,6 +454,38 @@ class EplBuilder extends Builder
 
 
 
+    /*
+        Build content
+    */
+    private function buildContentExt
+    (
+        /* Start content */
+        string $aContent,
+        /* Current file for relative pathes */
+        string $aFile,
+        /* Optional entity id */
+        string $aIdEntity = null
+    )
+    {
+TODO надо дописать метод
+если есть сущност собираем все подмены в %% используем их как ключи для запроса
+свойств сущности... ну и выкатываем это.
+далее в цикле повторяем всую процедуру пока не перкратятся изменения.
+так же надо добавить защиту контента ^^^
+
+        /* Build content */
+        $result = $this -> buildContent( $aContent, false, false );
+        /* Link processing */
+        $result = $this -> linkProcessing( $result, $aFile );
+
+        return $result;
+    }
+
+
+
+    /*
+        Build file and return content
+    */
     private function buildFile
     (
         string $aFile
@@ -327,10 +494,7 @@ class EplBuilder extends Builder
     {
         $content = $this -> getTemplate( $aFile );
 
-        /* Build content */
-        $content = $this -> buildContent( $content, false, false );
-        /* Link processing */
-        $content = $this -> linkProcessing( $content, $aFile );
+        $this -> buildContentExt( $content, $aFile );
 
         print_r( $content );
 
@@ -414,6 +578,22 @@ class EplBuilder extends Builder
     :self
     {
         $this -> destination = $a;
+        return $this;
+    }
+
+
+
+    /*
+        Set dest path for build epl model
+    */
+    public function setSource
+    (
+        /* Source path */
+        $a
+    )
+    :self
+    {
+        $this -> source = $a;
         return $this;
     }
 }
