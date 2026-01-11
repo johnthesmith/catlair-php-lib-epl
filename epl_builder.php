@@ -42,6 +42,9 @@ class EplBuilder extends Builder
     /* Result path */
     private ?string $destination = null;
 
+    /* Path from projectResult path */
+    private ?string $projectPath = null;
+
     /* Source path */
     private ?string $source = null;
 
@@ -154,40 +157,23 @@ class EplBuilder extends Builder
     /* File name */
     :string
     {
-        /* Build entity card file name */
-        $path =
-        $this -> destination
-        . '/'
-        . clScatterName( $aHash, 3 )
-        . '.md';
+        /* Generate project path for file */
+        $local = '/' . $this -> projectPath . clScatterName( $aHash, 3 ) . '.md';
 
-        $dir = dirname( $path );
-        $file = basename( $path );
+        /* Build entity card file name in the FS*/
+        $path = $this -> destination . $local;
 
-        /* Rebuild and validate path */
-        $parts = explode('/', $dir);
-        $stack = [];
-        foreach( $parts as $p )
-        {
-            if( $p === '' || $p === '.' ) continue;
-            if( $p === '..' ) array_pop($stack);
-            else $stack[] = $p;
-        }
-        $path = implode( '/', $stack );
-
-        $filePath = $path . '/' . $file;
-
-        if( clCheckPath( $path ))
+        if( clCheckPath( dirname( $path )))
         {
             /* Store file */
-            if( file_put_contents( $filePath, $aContent ))
+            if( file_put_contents( $path, $aContent ))
             {
                 /* Store hash */
                 $this -> cards[ $aHash ] = true;
             }
         }
 
-        return $filePath;
+        return $local;
     }
 
 
@@ -200,7 +186,7 @@ class EplBuilder extends Builder
         string $aLabel,
         string $aLink,
         string $aHint = '',
-        string $aTemplate = '[%label%](%link%|%hint%)'
+        string $aTemplate = '[%label%](%link% "%hint%")'
     )
     :string
     {
@@ -621,7 +607,7 @@ class EplBuilder extends Builder
     */
     private function buildFile
     (
-        /* File name for build */
+        /* Source file name with content for build */
         string $aFile,
         string|array $aVector = []
     )
@@ -629,15 +615,26 @@ class EplBuilder extends Builder
     {
         /* Get content from file */
         $content = $this -> getTemplate( $aFile );
+        /* Get file extension */
+        $ext = strtolower(pathinfo($aFile, PATHINFO_EXTENSION));
 
-        /* Build content */
-        $content = $this -> buildContentExt
-        (
-            $content,
-            $aFile,
-            null,
-            $aVector
-        );
+        /* Processing */
+        switch( $ext )
+        {
+            case 'md':
+            case 'txt':
+            case 'svg':
+                /* Rebuild content with template processing */
+                $content = $this -> buildContentExt
+                (
+                    $content,
+                    $aFile,
+                    null,
+                    $aVector
+                );
+                break;
+            default: break;
+        }
 
         /* Return content */
         $this -> writeOutput( hash( 'sha256', $aFile), $content );
@@ -722,6 +719,22 @@ class EplBuilder extends Builder
     :self
     {
         $this -> destination = $a;
+        return $this;
+    }
+
+
+
+    /*
+        Set project path
+    */
+    public function setProjectPath
+    (
+        /* Dst path */
+        $a
+    )
+    :self
+    {
+        $this -> projectPath = $a;
         return $this;
     }
 
