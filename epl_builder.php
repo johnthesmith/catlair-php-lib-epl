@@ -35,6 +35,13 @@ require_once( LIB . '/web/builder.php' );
 class EplBuilder extends Builder
 {
     const ENTITY_CONTENT = 'content';
+    /* Key name for name of the entity */
+    const ENTITY_NAME = 'name';
+    /* Key name for hyperlink template of the entity */
+    const ENTITY_HYPERLINK = 'hyperlink';
+    /* Key name for description of the property */
+    const ENTITY_HINT = 'hint';
+
 
     /* Epl object */
     private ?Epl $epl = null;
@@ -372,14 +379,14 @@ class EplBuilder extends Builder
                     (
                         /* Label */
                         empty( $aLabel )
-                        ? $this -> getProperty( $aId, Epl::NAME, $aId, $aVector )
+                        ? $this -> getProperty( $aId, self::ENTITY_NAME, $aId, $aVector )
                         : $aLabel,
 
                         /* Link */
                         $filename,
 
-                        $this -> getProperty( $aId, Epl::HINT, '', $aVector ),
-                        $this -> getProperty( $aId, Epl::HYPERLINK, '', $aVector )
+                        $this -> getProperty( $aId, self::ENTITY_HINT, '', $aVector ),
+                        $this -> getProperty( $aId, self::ENTITY_HYPERLINK, '', $aVector )
                     );
                 }
             }
