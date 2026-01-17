@@ -83,12 +83,6 @@ class Epl extends Result
     /* Key name for source value */
     const SOURCE  = 'source';
 
-    /* Key name for hyperlink template of the entity */
-    const CARD = 'card';
-
-    /* Key name for description of the property */
-    const DESCRIPTION = 'description';
-
     /*
         Array of entities:
         [
@@ -591,45 +585,6 @@ class Epl extends Result
 
 
 
-    /*
-        Normalize vector to array of string arrays
-    */
-    private function normalizeVector
-    (
-        /*
-            null -> []
-            scalar -> []
-            [ key: value ]  -> [ key: [ value ] ]
-            [ key: [value, value, ...  ]] -> [ key: [value, value, ...  ]]
-        */
-        $aRawVector
-    )
-    :array
-    {
-        $result = [];
-        if( is_array( $aRawVector ))
-        {
-            foreach( $aRawVector as $key => $value )
-            {
-                if( $value === null )
-                {
-                    $result[ $key ] = [];
-                }
-                elseif( is_array( $value ))
-                {
-                    $result[ $key ] = $value;
-                }
-                else
-                {
-                    $result[ $key ] = [ $value ];
-                }
-            }
-        }
-        return $result;
-    }
-
-
-
     /**************************************************************************
         Work with entities
     */
@@ -758,6 +713,168 @@ class Epl extends Result
             if( $nextId === $currentId ) break;
             $currentId = $nextId;
         }
+    }
+
+
+
+    /**************************************************************************
+        Work with vector
+    */
+
+    /*
+        Normalize vector to array of string arrays
+    */
+    static public function normalizeVector
+    (
+        /*
+            null -> []
+            scalar -> []
+            [ key: value ]  -> [ key: [ value ] ]
+            [ key: [value, value, ...  ]] -> [ key: [value, value, ...  ]]
+        */
+        $aRawVector
+    )
+    :array
+    {
+        $result = [];
+        if( is_array( $aRawVector ))
+        {
+            foreach( $aRawVector as $key => $value )
+            {
+                if( $value === null )
+                {
+                    $result[ $key ] = [];
+                }
+                elseif( is_array( $value ))
+                {
+                    $result[ $key ] = $value;
+                }
+                else
+                {
+                    $result[ $key ] = [ $value ];
+                }
+            }
+        }
+        return $result;
+    }
+
+
+
+    /*
+        Convert normalized vector in to string
+        [ key1: [value, ...  ], key2:...] -> 'key1=value...&key2=...'
+    */
+    static public function vectorToString
+    (
+        /* Normalized Vector array */
+        array $aVector,
+        /* String if vector is empty */
+        string $aEmpty = 'default'
+    )
+    :string
+    {
+        $pairs = [];
+        foreach( $aVector as $key => $values )
+        {
+            $valStr = is_array($values) ? implode(',', $values) : $values;
+            $pairs[] = $key . '=' . $valStr;
+        }
+        $result = implode('&', $pairs);
+        return empty( $result ) ? $aEmpty : $result;
+    }
+
+
+
+    /*
+        Convert string in to vector
+        'key1=value,...&key2=...'  -> [ key1: [value, ...  ], key2:...]
+    */
+    static public function vectorFromString
+    (
+        string $a
+    )
+    : array
+    {
+        $vector = [];
+        if( !empty( $a ))
+        {
+            $pairs = explode( '&', $a );
+            foreach( $pairs as $pair )
+            {
+                $parts = explode( '=', $pair, 2 );
+                $key = $parts[ 0 ];
+                $valStr = $parts[ 1 ] ?? '';
+
+                if( $valStr === '' )
+                {
+                    $vector[ $key ] = [];
+                }
+                elseif( strpos( $valStr, ',' ) !== false )
+                {
+                    $vector[ $key ] = explode( ',', $valStr );
+                }
+                else
+                {
+                    $vector[ $key ] = $valStr;
+                }
+            }
+        }
+        return $vector;
+    }
+
+
+
+    /*
+        Conver string in to property reference
+            man -> entity:man, path:[], vector:[]
+            man&lang=ru → entity: "man", path: [], vector: ...
+            man/name/attr&lang=ru → entity: "man", path: ["name", "attr"], ...
+            /name/attr&lang=ru → entity: "", path: ["name", "attr"], ...
+    */
+    static public function parsePropertyRef
+    (
+        /* [entity][/path/...][&vector=value1,value2&....] */
+        string $a,
+        ?string $aDefaultEntity = null,
+        array $aDefaultPath = [],
+        array $aDefaultVector = []
+    )
+    /*
+        string entity
+        array path of property
+        array vector for property
+    */
+    :array
+    {
+        $parts = explode( '&', $a, 2 );
+        $pathPart = $parts[0];
+        $vectorStr = $parts[1] ?? '';
+
+        $path = self::stringToPath( $pathPart );
+        $entity = array_shift( $path ) ?? '';
+
+        return
+        [
+            'entity' => empty( $entity ) ? $aDefaultEntity : $entity,
+            'path'   => array_filter( $path ) ?: $aDefaultPath,
+            'vector' => ($vectorStr !== '')
+            ? self::vectorFromString($vectorStr)
+            : $aDefaultVector
+        ];
+    }
+
+
+    /*
+        Convert string a/b/c/d in to path [ 'a', 'b', 'c' ]
+    */
+    static public function stringToPath
+    (
+        /* Incoming string */
+        string $a
+    )
+    :array
+    {
+        return explode( '/', $a );
     }
 
 
