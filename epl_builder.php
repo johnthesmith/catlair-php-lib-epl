@@ -69,6 +69,11 @@ class EplBuilder extends Builder
     /* Entities cards cache */
     private array $cards = [];
 
+    /* Array of waiting lisks */
+    private array $todo = [];
+
+    /* Array of completed lins */
+    private array $done = [];
 
     /*
         Create new builder
@@ -85,7 +90,7 @@ class EplBuilder extends Builder
 
 
     /*
-        Build content from epl model
+        Main method for building result documentaiton
     */
     public function run
     (
@@ -94,22 +99,49 @@ class EplBuilder extends Builder
     )
     :self
     {
+        /* Start monitoring */
         $this
         -> getMon()
         -> now([ 'stat', 'begin' ]);
 
-        /* Reset cards cache */
-        $this -> cards = [];
-
         /* Build epl */
         $this -> getEpl()
-        /* Assemble epl model from epl path */
         -> assemble( $this -> source )
-        -> resultTo( $this )
-        ;
+        -> resultTo( $this );
 
-        /* Build first index file in the source root */
-        $this -> processingFile( basename( $aIndexFile ));
+        /* Let link index */
+        $this -> todo = [];
+        /* Processed links */
+        $this -> done = [];
+
+        /* Start point */
+        $this -> addFileTodo( $aIndexFile );
+
+        /* Processing */
+        while( !empty( $this -> todo ))
+        {
+            /* Get first element */
+            $hash = array_key_first( $this -> todo );
+            $task = $this -> todo[ $hash ];
+
+            unset( $this -> todo[ $hash ]);
+            switch( $task[ 'type' ])
+            {
+                case 'epl':
+                    $link = $this -> processEntityLink( $task );
+                    break;
+                case "file":
+                    $link = $this -> processFileLink( $task );
+                    break;
+                case "external":
+                    $link = $this -> processExternalLink( $task );
+                    break;
+                default:
+                    $link = $this -> processUnknownLink( $task );
+                    break;
+            }
+            $this -> done[ $hash ] = $link;
+        }
 
         /* Dump monitor */
         $this
@@ -120,6 +152,211 @@ class EplBuilder extends Builder
 
         return $this;
     }
+
+
+
+    /*
+        Cretate or find entity link
+    */
+    private function addEntityLink
+    (
+        /* Arguments after parsePropertyRef */
+        string $aEntityId,
+        array $aVector,
+        string $aLabel,
+        /* Source file with link */
+        string $aSource
+    )
+    : Result
+    {
+        $result = '';
+
+        if( !$this -> getEpl() -> isEntity( $aEntityId ))
+        {
+            /* Monitoring */
+            $this -> getMon() -> add
+            ([
+                'error',
+                'entity-not-found',
+                $aEntityId,
+                $source
+            ]);
+            $result = '`' . $entityId . '`';
+        }
+        else
+        {
+            /* Create link hash */
+            $hash = $this -> taskHash
+            ([
+                'type' => 'entity',
+                'target' => $aEntityId,
+                'label' => $aLabel,
+                'vector' => $aVector
+            ]);
+
+            /* Check link hash exists */
+            if( isset( $this -> done[ $hash ]))
+            {
+                $result = $this -> done[ $hash ];
+            }
+            else
+            {
+                $cardFile = $this -> entityToCardPath( $aEntityId, $aVector );
+
+                $link = self::buildLink
+                (
+                    empty( $aLabel )
+                    ? $this -> getProperty
+                    (
+                        $aEntityId,
+                        [self::ENTITY_NAME],
+                        $aEntityId,
+                        $aVector
+                    )
+                    : $aLabel,
+                    $cardFile,
+                    $this -> getProperty
+                    (
+                        $aEntityId,
+                        [self::ENTITY_HINT],
+                        '',
+                        $aVector
+                    ),
+                    $this -> getProperty
+                    (
+                        $aEntityId,
+                        [self::ENTITY_HYPERLINK],
+                        '',
+                        $aVector
+                    )
+                );
+
+                /* Store todo */
+                $this -> todo[ $hash ] =
+                [
+                    'type' => 'entity',
+                    'target' => $aEntityId,
+                    'vector' => $aVector,
+                    'label' => $aLabel
+                ];
+
+                $result = $link;
+            }
+        }
+
+        return $result;
+    }
+
+
+
+
+    /*
+        Build content
+    */
+    private function buildContentExt
+    (
+        /* Start content */
+        string $aContent,
+        /* Current file for relative pathes */
+        string $aFile,
+        /* Optional entity id */
+        string $aIdEntity = null,
+        /* Vector */
+        string|array $aVector = null
+    )
+    {
+        /* Build content */
+        $result = $this -> buildContent
+        (
+            $aContent,
+            false,
+            false,
+            function ( $content ) use ( $aFile, $aIdEntity, $aVector )
+            {
+                $result = $content;
+
+                if( $aIdEntity !== null )
+                {
+                    /* Replace entity properties */
+                    /* Extract all %key% patterns with their positions */
+                    $pattern = '/%([^%]+)%/';
+                    $matches = [];
+                    preg_match_all
+                    (
+                        $pattern,
+                        $result,
+                        $matches,
+                        PREG_OFFSET_CAPTURE
+                    );
+
+                    /* Build list of matches */
+                    $map =
+                    [
+                        Epl::ID => $aIdEntity,
+                        self::ENTITY_CONTENT => ''
+                    ];
+
+                    foreach( $matches[0] as $index => $fullMatch )
+                    {
+                        $keyStr = $matches[1][$index][0];
+                        $ref = Epl::parsePropertyRef
+                        (
+                            $keyStr,
+                            $aIdEntity,
+                            [],
+                            $aVector
+                        );
+
+                        /* Direct property request */
+                        $val = $this -> getProperty
+                        (
+                            $ref[ 'entity' ],
+                            $ref[ 'path' ],
+                            null,
+                            $ref[ 'vector' ]
+                        );
+
+                        if( $val === null )
+                        {
+                            /* failback */
+                            $val = $this -> getProperty
+                            (
+                                $ref[ 'entity' ],
+                                [ 'empty-property' ],
+                                '`' . $keyStr . '`',
+                                $ref[ 'vector' ]
+                            );
+                        }
+
+                        $map[ $keyStr ] = $val;
+                    }
+                    $result = clPrep( $result, $map );
+                }
+                return $result;
+            }
+        );
+
+        /* Link postprocessing */
+        $result = $this -> linkProcessing( $result, $aFile, $aVector );
+
+        /* Build result */
+        return $result;
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -413,7 +650,7 @@ class EplBuilder extends Builder
                 case 'id':
                     return $aIdEntity;
                 case 'type':
-                    return $this->getEpl()->getEntityType( $aIdEntity );
+                    return $this -> getEpl() -> getEntityType( $aIdEntity );
             }
         }
 
@@ -437,7 +674,6 @@ class EplBuilder extends Builder
             $aVector
         );
     }
-
 
 
 
@@ -536,7 +772,7 @@ class EplBuilder extends Builder
 
                         $sourceFile = clNormalizePath
                         (
-                            $this -> source . '/' . $file 
+                            $this -> source . '/' . $file
                         );
 
                         /* Check source file */
@@ -694,101 +930,6 @@ class EplBuilder extends Builder
             }
         }
 
-        return $result;
-    }
-
-
-
-    /*
-        Build content
-    */
-    private function buildContentExt
-    (
-        /* Start content */
-        string $aContent,
-        /* Current file for relative pathes */
-        string $aFile,
-        /* Optional entity id */
-        string $aIdEntity = null,
-        /* Vector */
-        string|array $aVector = null
-    )
-    {
-        /* Build content */
-        $result = $this -> buildContent
-        (
-            $aContent,
-            false,
-            false,
-            function ( $content ) use ( $aFile, $aIdEntity, $aVector )
-            {
-                $result = $content;
-
-                if( $aIdEntity !== null )
-                {
-                    /* Replace entity properties */
-                    /* Extract all %key% patterns with their positions */
-                    $pattern = '/%([^%]+)%/';
-                    $matches = [];
-                    preg_match_all
-                    (
-                        $pattern,
-                        $result,
-                        $matches,
-                        PREG_OFFSET_CAPTURE
-                    );
-
-                    /* Build list of matches */
-                    $map =
-                    [
-                        Epl::ID => $aIdEntity,
-                        self::ENTITY_CONTENT => ''
-                    ];
-
-                    foreach( $matches[0] as $index => $fullMatch )
-                    {
-                        $keyStr = $matches[1][$index][0];
-                        $ref = Epl::parsePropertyRef
-                        (
-                            $keyStr,
-                            $aIdEntity,
-                            [],
-                            $aVector
-                        );
-
-                        /* Direct property request */
-                        $val = $this -> getProperty
-                        (
-                            $ref[ 'entity' ],
-                            $ref[ 'path' ],
-                            null,
-                            $ref[ 'vector' ]
-                        );
-
-                        if( $val === null )
-                        {
-                            /* failback */
-                            $val = $this -> getProperty
-                            (
-                                $ref[ 'entity' ],
-                                [ 'empty-property' ],
-                                '`' . $keyStr . '`',
-                                $ref[ 'vector' ]
-                            );
-                        }
-
-                        $map[ $keyStr ] = $val;
-                    }
-                    $result = clPrep( $result, $map );
-                }
-                return $result;
-            }
-        );
-
-        /* Link postprocessing */
-        $result = $this -> linkProcessing( $result, $aFile, $aVector );
-
-        /* Build result */
         return $result;
     }
 
