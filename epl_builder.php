@@ -55,7 +55,7 @@ class EplBuilder extends Builder
     private ?string $destination = null;
 
     /* Path from projectResult path */
-    private ?string $projectPath = null;
+    private ?string $destinationSubpath = null;
 
     /* Source path */
     private ?string $source = null;
@@ -136,6 +136,10 @@ class EplBuilder extends Builder
     )
     :self
     {
+        $this
+        -> getLog()
+        -> begin( 'Start processing' );
+
         /* Start monitoring */
         $this
         -> getMon()
@@ -157,32 +161,40 @@ class EplBuilder extends Builder
         /* Processing */
         while( !empty( $this -> queue ))
         {
+            $this -> getLog() -> begin( 'Queue loop' );
+
             /* Get first element */
             $hash = array_key_first( $this -> queue );
             $task = $this -> queue[ $hash ];
+
+            $this -> getLog() -> dump( $task, 'Task' );
 
             unset( $this -> queue[ $hash ]);
             switch( $task[ 'type' ])
             {
                 case "file":
                     $link = $this -> processFileLink( $task );
-                    break;
-                case 'epl':
+                break;
+                case 'entity':
                     $link = $this -> processEntityLink( $task );
-                    break;
-                case "external":
-                    $link = $this -> processExternalLink( $task );
-                    break;
+                break;
                 default:
-                    $link = $this -> processUnknownLink( $task );
-                    break;
+                break;
             }
             $this -> links[ $hash ] = $link;
+
+            $this -> getLog() -> end();
         }
 
         /* Dump monitor */
-        $debugFile = $this -> getDestination( $this -> debug );
+        $debugFile = $this -> buildDestination
+        (
+            '/' . $this -> destinationSubpath . '/'. $this -> debug
+        );
         $this -> getMon() -> drop( $debugFile ) -> flush( $debugFile );
+
+        $this -> getLog() -> end();
+
         return $this;
     }
 
@@ -224,7 +236,11 @@ class EplBuilder extends Builder
         $sourceFile = $this -> getSource( $fileName );
 
         /* Build real normalized destination in FS */
-        $destinationFile = $this -> getDestination( $fileName );
+        $destinationFile = $this -> buildDestination
+        (
+            '/' . $this -> destinationSubpath . '/' .
+            $fileName
+        );
 
         /* Call file processing */
         $content = $this -> getTemplate( $sourceFile );
@@ -252,7 +268,7 @@ class EplBuilder extends Builder
                 default: break;
             }
 
-            /* Return content */
+            /* Write content */
             $this -> writeOutput( $destinationFile, $content );
         }
         return $this;
@@ -266,137 +282,223 @@ class EplBuilder extends Builder
     )
     :self
     {
-//    private function buildEntityLink
-//    (
-//        /* Entity id */
-//        $aId,
-//        /* Optional label */
-//        string $aLabel,
-//        /* Vector for name request */
-//        array $aVector
-//    )
-//    : ?string
-//    {
-//        /*  Default link */
-//        $result = null;
-//
-//        if( $this -> getEpl() -> isEntity( $aId ) )
-//        {
-//            /* Build entity card hash */
-//            $cardFile = implode
-//            (
-//                '',
-//                [
-//                    '/card/',
-//                    $aId,
-//                    '/',
-//                    Epl::vectorToString( $aVector ),
-//                    '.md'
-//                ]
-//            );
-//
-//            /*
-//                Build card
-//            */
-//            /* Check card file in the cache */
-//            if( !( $this -> cards[ $cardFile ] ?? false ))
-//            {
-//                /* Get card content */
-//                $content = $this -> getProperty
-//                (
-//                    $aId,
-//                    [ self::ENTITY_CARD ],
-//                    '',
-//                    $aVector
-//                );
-//
-//                /* Build content */
-//                $content = $this -> buildContentExt
-//                (
-//                    $content,
-//                    $cardFile,
-//                    $aId,
-//                    $aVector
-//                );
-//
-//                /* Write content */
-//                if( $this -> writeOutput( $cardFile, $content ))
-//                {
-//                    /*
-//                        Build link
-//                    */
-//                    $result = self::buildLink
-//                    (
-//                        /* Label */
-//                        empty( $aLabel )
-//                        ? $this -> getProperty
-//                        (
-//                            $aId,
-//                            [ self::ENTITY_NAME ],
-//                            $aId,
-//                            $aVector
-//                        )
-//                        : $aLabel,
-//
-//                        /* Link */
-//                        $cardFile,
-//
-//                        $this -> getProperty
-//                        (
-//                            $aId,
-//                            [ self::ENTITY_HINT ],
-//                            '',
-//                            $aVector
-//                        ),
-//
-//                        $this -> getProperty
-//                        (
-//                            $aId,
-//                            [ self::ENTITY_HYPERLINK ],
-//                            '',
-//                            $aVector
-//                        )
-//                    );
-//                }
-//            }
-//        }
-//
-//        return $result;
-//    }
-//
+        /* Extract file name */
+        $entity = $aTask[ 'target' ];
+        $reason = $aTask[ 'reason' ] ?? '';
+        $vector = $aTask[ 'vector' ] ?? [];
 
+        if( $this -> getEpl() -> isEntity( $entity ) )
+        {
+            /* Build entity card hash */
+            $fileName = $this -> entityToCardPath( $entity, $vector );
+            /* Build real normalized destination in FS */
+            $destinationFile = $this -> buildDestination( $fileName );
+            /* Get card content */
+            $content = $this -> getProperty
+            (
+                $entity,
+                [ self::ENTITY_CARD ],
+                '',
+                $vector
+            );
+
+            /* Build content */
+            $content = $this -> buildContentExt
+            (
+                $content,
+                $fileName,
+                $entity,
+                $vector
+            );
+
+            /* Write content */
+            $this -> writeOutput( $destinationFile, $content );
+        }
         return $this;
     }
 
-
-
-
-    private function processExternalLink
-    (
-        $aTask
-    )
-    :self
-    {
-        return $this;
-    }
-
-
-
-    private function processUnknownLink
-    (
-        $aTask
-    )
-    :self
-    {
-        return $this;
-    }
 
 
     /**************************************************************************
-        Add differen links in to queue for processing
+        Link extracotr section
+
+        `linkExtractor` search and replace all links in content
+        Each link will be add in to queue for processing by loop of `run`
+        method.
             links
             files
     */
+
+
+    /*
+        Extract all [label](link "hint") from content
+    */
+    private function linkExtractor
+    (
+        /* Content for processing */
+        string $content,
+        /* Processing file name for relative links */
+        string $aReasonFile,
+        /* Default vector for files porcessing */
+        string|array $aVector = null
+    )
+    :string
+    {
+        $links = [];
+
+        /* Link pattern */
+        $pattern = '/\[(.*?)\]\((.*?)\)/';
+
+        /* find all atches */
+        preg_match_all
+        (
+            $pattern,
+            $content,
+            $matches,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        );
+
+        /* Build array of links */
+        foreach( $matches as $match )
+        {
+            $links[] =
+            [
+                'full'  => $match[0][0],
+                'label' => $match[1][0],
+                'link'  => $match[2][0],
+                'start' => $match[0][1],
+                'end'   => $match[0][1] + strlen($match[0][0])
+            ];
+        }
+
+        /* Links processing */
+        $processedLinks = [];
+        foreach( $links as $item )
+        {
+            /* Build link hash */
+            $linkHash = self::buildLinkHash( $item[ 'full' ]);
+            $linkRaw = $item[ 'link' ];
+            $label = $item[ 'label' ];
+            /* Link and hint */
+            preg_match( '/^(.*?)\s*"(.*)"$/', $linkRaw, $matches);
+            $link = $matches[1] ?? $linkRaw;
+            $hint = $matches[2] ?? '';
+
+            $linkContent = null;
+            $success = true;
+
+            /* Looking link in the link cache by link hash */
+            if( isset( $this -> links[ $linkHash ]))
+            {
+                /*  Return item from links */
+                $l = $this -> links[ $linkHash ];
+                $linkContent = $l[ 'content' ];
+                $success = $l[ 'success' ];
+            }
+            else
+            {
+                /* External link */
+                /* Protocol check (external URL) */
+                if( preg_match( '#^(https?|ftp|mailto)://#', $link ))
+                {
+                    /* External linkk */
+                    $linkContent = self::buildLink( $label, $link );
+                }
+                else
+                {
+                    /* Anchor */
+                    /* Local anchor link */
+                    if( strpos( $link, '#' ) === 0 )
+                    {
+                        $linkContent = $item[ 'full' ];
+                    }
+                    else
+                    {
+                        /* Entity [](entity) */
+                        /* Convert link string to entity reference */
+                        $ref = Epl::parsePropertyRef( $link );
+                        $linkContent = $this -> addEntityLink
+                        (
+                            $ref[ 'entity' ],
+                            $ref[ 'vector' ],
+                            $item[ 'label' ],
+                            $hint,
+                            $aReasonFile
+                        );
+
+                        /* File [](file) */
+                        if( empty( $linkContent ))
+                        {
+                            /* Split anchor */
+                            $parts = explode( '#', $link, 2 );
+                            $file = $parts[ 0 ];
+                            $ancor = $parts[ 1 ] ?? '';
+                            /* Resolve link file relative file */
+                            $file = $this -> resolveToProjectPath
+                            (
+                                $file,
+                                $aReasonFile,
+                            );
+                            /* Check source file */
+                            $linkContent  = $this -> addFileLink
+                            (
+                                $file,
+                                $label,
+                                $hint,
+                                $aReasonFile
+                            );
+
+                            if( empty( $linkContent ))
+                            {
+                                /* Unknown link */
+                                $linkContent = '`unknown-link:' . $link . '`';
+                                $success = false;
+                            }
+                        }
+                    }
+                }
+
+                /* Store link in to the link cache */
+                $this -> links[ $linkHash ] =
+                [
+                    'content' => $linkContent,
+                    'success' => $success
+                ];
+            }
+
+            if( !$success )
+            {
+                $this -> getMon() -> add
+                (
+                    [ 'warning', 'unknown-link', $link, $aReasonFile ]
+                );
+            }
+
+            /* Store link */
+            $processedLinks[] =
+            [
+                'content'   => $linkContent,
+                'start'     => $item[ 'start' ],
+                'end'       => $item[ 'end' ]
+            ];
+        }
+
+        /* Replace links in content */
+        for( $i = count( $processedLinks ) - 1; $i >= 0; $i-- )
+        {
+            $link = $processedLinks[ $i ];
+            $content = substr_replace
+            (
+                $content,
+                $link[ 'content' ],
+                $link[ 'start' ],
+                $link[ 'end' ] - $link[ 'start' ]
+            );
+        }
+
+        return $content;
+    }
+
 
 
     /*
@@ -426,10 +528,12 @@ class EplBuilder extends Builder
         /* Final result */
         $result = null;
 
+        $reasonDir = dirname( $aReasonFile );
+
         /* Retrive base path from root */
         $baseFile = clNormalizePath
         (
-            dirname( $aReasonFile ) . '/' . $aLinkFile
+            (empty( $reasonDir ) ? '' : ( $reasonDir . '/' )). $aLinkFile
         );
 
         /* Retrive source path */
@@ -562,181 +666,8 @@ class EplBuilder extends Builder
 
 
 
-
-
     /***************************************************************************
-    **/
-
-
-    /*
-        Extract all [label](link "hint") from content
     */
-    private function linkExtractor
-    (
-        /* Content for processing */
-        string $content,
-        /* Processing file name for relative links */
-        string $aReasonFile,
-        /* Default vector for files porcessing */
-        string|array $aVector = null
-    )
-    :string
-    {
-        $links = [];
-
-        /* Link pattern */
-        $pattern = '/\[(.*?)\]\((.*?)\)/';
-
-        /* find all atches */
-        preg_match_all
-        (
-            $pattern,
-            $content,
-            $matches,
-            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
-        );
-
-        /* Build array of links */
-        foreach( $matches as $match )
-        {
-            $links[] =
-            [
-                'full'  => $match[0][0],
-                'label' => $match[1][0],
-                'link'  => $match[2][0],
-                'start' => $match[0][1],
-                'end'   => $match[0][1] + strlen($match[0][0])
-            ];
-        }
-
-        /* Links processing */
-        $processedLinks = [];
-        foreach( $links as $item )
-        {
-            /* Build link hash */
-            $linkHash = self::buildLinkHash( $item[ 'full' ]);
-            $linkRaw = $item[ 'link' ];
-            $label = $item[ 'label' ];
-            /* Link and hint */
-            preg_match( '/^(.*?)\s*"(.*)"$/', $linkRaw, $matches);
-            $link = $matches[1] ?? $linkRaw;
-            $hint = $matches[2] ?? '';
-
-            $linkContent = null;
-            $success = true;
-
-            /* Looking link in the link cache by link hash */
-            if( isset( $this -> links[ $linkHash ]))
-            {
-                /*  Return item from links */
-                $l = $this -> links[ $linkHash ];
-                $linkContent = $l[ 'content' ];
-                $success = $l[ 'success' ];
-            }
-            else
-            {
-                /* External link */
-                /* Protocol check (external URL) */
-                if( preg_match( '#^(https?|ftp|mailto)://#', $link ))
-                {
-                    /* External linkk */
-                    $linkContent = self::buildLink( $label, $link );
-                }
-                else
-                {
-                    /* Anchor */
-                    /* Local anchor link */
-                    if( strpos( $link, '#' ) === 0 )
-                    {
-                        $linkContent = $item[ 'full' ];
-                    }
-                    else
-                    {
-                        /* Entity [](entity) */
-                        /* Convert link string to entity reference */
-                        $ref = Epl::parsePropertyRef( $link );
-                        $linkContent = $this -> addEntityLink
-                        (
-                            $ref[ 'entity' ],
-                            $ref[ 'vector' ],
-                            $item[ 'label' ],
-                            $hint,
-                            $aReasonFile
-                        );
-
-                        /* File [](file) */
-                        if( empty( $linkContent ))
-                        {
-                            /* Split anchor */
-                            $parts = explode( '#', $link, 2 );
-                            $file = $parts[ 0 ];
-                            $ancor = $parts[ 1 ] ?? '';
-                            /* Resolve link file relative file */
-                            $file = $this -> resolveToProjectPath
-                            (
-                                $file,
-                                $aReasonFile,
-                            );
-                            /* Check source file */
-                            $linkContent  = $this -> addFileLink
-                            (
-                                $file,
-                                $label,
-                                $hint,
-                                $aReasonFile
-                            );
-                            if( empty( $linkContent ))
-                            {
-                                /* Unknown link */
-                                $linkContent = '`unknown-link:' . $link . '`';
-                                $success = false;
-                            }
-                        }
-                    }
-                }
-
-                /* Store link in to the link cache */
-                $this -> links[ $linkHash ] =
-                [
-                    'content' => $linkContent,
-                    'success' => $success
-                ];
-            }
-
-            if( !$success )
-            {
-                $this -> getMon() -> add
-                (
-                    [ 'warning', 'unknown-link', $link, $aReasonFile ]
-                );
-            }
-
-            /* Store link */
-            $processedLinks[] =
-            [
-                'content'   => $linkContent,
-                'start'     => $item[ 'start' ],
-                'end'       => $item[ 'end' ]
-            ];
-        }
-
-        /* Replace links in content */
-        for( $i = count( $processedLinks ) - 1; $i >= 0; $i-- )
-        {
-            $link = $processedLinks[ $i ];
-            $content = substr_replace
-            (
-                $content,
-                $link[ 'content' ],
-                $link[ 'start' ],
-                $link[ 'end' ] - $link[ 'start' ]
-            );
-        }
-
-        return $content;
-    }
-
-
 
     /*
         Build content
@@ -859,6 +790,14 @@ class EplBuilder extends Builder
 
 
 
+
+    /**************************************************************************
+        Utils
+    */
+
+
+
+
     /*
         Return FS path from source for value
     */
@@ -904,13 +843,17 @@ class EplBuilder extends Builder
     )
     : string
     {
+        $currentPath = dirname( $aCurrent );
         if
         (
-            strpos( $aLink, './' ) === 0 ||
-            strpos( $aLink, '../' ) === 0
+            !empty( $currentPath ) &&
+            (
+                strpos( $aLink, './' ) === 0 ||
+                strpos( $aLink, '../' ) === 0
+            )
         )
         {
-            $result = dirname( $aCurrent ) . '/' . $aLink;
+            $result = $currentPath . '/' . $aLink;
         }
         else
         {
@@ -1072,13 +1015,8 @@ class EplBuilder extends Builder
 
 
 
-    /**************************************************************************
-        Utils
-    */
-
-
     /*
-        Build entity card file
+        Build entity card file in the project
     */
     private function entityToCardPath
     (
@@ -1089,16 +1027,21 @@ class EplBuilder extends Builder
     )
     :string
     {
-        return implode
+        return clNormalizePath
         (
-            '',
-            [
-                '/card/',
-                $aId,
-                '/',
-                Epl::vectorToString( $aVector ),
-                '.md'
-            ]
+            implode
+            (
+                '',
+                [
+                    '/',
+                    $this -> destinationSubpath,
+                    '/entities/',
+                    $aId,
+                    '/',
+                    Epl::vectorToString( $aVector ),
+                    '.md'
+                ]
+            )
         );
     }
 
@@ -1179,7 +1122,9 @@ class EplBuilder extends Builder
         $result = false;
 
         /* Build entity card file name in the FS */
-        $path = $this -> getDestination( $aInternalPath );
+        $path = $aInternalPath;
+
+print_r($path . PHP_EOL );
 
         $dir = dirname( $path );
 
@@ -1187,12 +1132,6 @@ class EplBuilder extends Builder
         {
             /* Store file */
             $result = file_put_contents( $path, $aContent );
-
-            if( $result )
-            {
-                /* Store cache */
-                $this -> cards[ $aInternalPath ] = true;
-            }
         }
         else
         {
@@ -1207,10 +1146,30 @@ class EplBuilder extends Builder
 
 
 
+    /*
+        Return destination with relative path
+    */
+    public function buildDestination
+    (
+        /* Relative path */
+        string $aLocal = null
+    )
+    {
+        $path = [ $this -> destination ];
+
+        if( !empty( $aLocal ))
+        {
+            $path[] = $aLocal;
+        }
+
+        return clNormalizePath( implode( '/', $path ));
+    }
+
+
+
     /**************************************************************************
         Setters and getters
     */
-
 
     /*
         Return epl object
@@ -1288,34 +1247,18 @@ class EplBuilder extends Builder
 
 
 
-    /*
-        Return destination with relative path
-    */
-    public function getDestination
-    (
-        /* Relative path */
-        string $a = null
-    )
-    {
-        return clNormalizePath
-        (
-            $this -> destination . ( $a === null ? '' : ( '/' . $a ))
-        );
-    }
-
-
 
     /*
         Set project path
     */
-    public function setProjectPath
+    public function setDestinationSubpath
     (
         /* Dst path */
         $a
     )
     :self
     {
-        $this -> projectPath = $a;
+        $this -> destinationSubpath = $a;
         return $this;
     }
 
